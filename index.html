@@ -6,7 +6,6 @@
     <title>vSAN ESA Deduplication Estimator</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        /* [Previous CSS styles remain the same...] */
         :root {
             /* TailAdmin Dark Theme Color Palette */
             --primary: #4f46e5;
@@ -522,6 +521,15 @@
             color: var(--text-primary);
         }
 
+        .raw-capacity-row {
+            background: rgba(79, 70, 229, 0.1) !important;
+        }
+
+        .raw-capacity-row td {
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
         .animation-container {
             height: 140px;
             background: var(--surface-dark);
@@ -877,6 +885,7 @@
                 </div>
 
                 <div id="errors" class="hidden"></div>
+                <div id="warnings" class="hidden"></div>
             </div>
         </div>
 
@@ -1179,9 +1188,17 @@
             return errors;
         }
 
+        // CRITICAL FIX: Added raw capacity validation
         function calculateEstimate() {
             const hosts = parseInt(document.getElementById('hosts').value) || 6;
+            const rawTiBPerHost = parseFloat(document.getElementById('rawTiBPerHost').value) || 20;
             const raidLevel = document.getElementById('raidLevel').value || 'raid1';
+            
+            // STEP 1: Calculate physical capacity limits
+            const totalRawCapacity = hosts * rawTiBPerHost;
+            const resilienceMultiplier = RESILIENCE_MULTIPLIERS[raidLevel] || 1.33;
+            const usableRawCapacity = totalRawCapacity / resilienceMultiplier;
+            
             const compressionOn = document.getElementById('compressionOn').checked;
             const domainMode = document.getElementById('domainMode').value || 'typical';
             const esaOverheadRate = (parseFloat(document.getElementById('esaOverheadRate').value) || 8) / 100;
@@ -1194,6 +1211,7 @@
                 throw new Error('No workload data available');
             }
             
+            // STEP 2: Perform efficiency calculations
             const perWorkload = workloads.map(w => {
                 const compressionProfile = DEFAULT_COMPRESSION_BY_TYPE[w.type] || { default: 1.0 };
                 const compressionFactor = compressionOn ? compressionProfile.default : 1.0;
@@ -1221,28 +1239,45 @@
             });
             
             const checksumOverhead = checksumRate * Math.max(0, totalCompressed - totalDedupeSavings);
+            const netEffective = totalCompressed - totalDedupeSavings + esaOverhead + checksumOverhead;
             
-            // CRITICAL FIX: Use correct resilience multiplier based on RAID type
-            const resilienceMultiplier = RESILIENCE_MULTIPLIERS[raidLevel] || 1.33;
-            const raidDescription = VSAN_RAID_REQUIREMENTS[raidLevel]?.description || 'RAID-1';
-            
-            const netEffective = (totalCompressed - totalDedupeSavings + esaOverhead + checksumOverhead) * resilienceMultiplier;
-            
+            // STEP 3: CRITICAL VALIDATION - Check against raw capacity limits
+            const capacityUtilization = (netEffective / usableRawCapacity) * 100;
             const overallReduction = safeDiv(logicalTotal, netEffective);
             const compressionOnly = safeDiv(logicalTotal, totalCompressed);
             const dedupeOnly = safeDiv(totalCompressed, Math.max(1e-9, totalCompressed - totalDedupeSavings));
+            
+            // Add warnings for capacity violations
+            const warnings = [];
+            if (netEffective > usableRawCapacity) {
+                warnings.push(`⚠️ CAPACITY VIOLATION: Net effective capacity (${formatNumber(netEffective, 1)} TiB) exceeds usable raw capacity (${formatNumber(usableRawCapacity, 1)} TiB)`);
+            }
+            if (capacityUtilization > 90) {
+                warnings.push(`⚠️ HIGH UTILIZATION: ${formatNumber(capacityUtilization, 1)}% of usable capacity`);
+            }
+            if (overallReduction > 10) {
+                warnings.push(`⚠️ UNREALISTIC EFFICIENCY: ${formatNumber(overallReduction, 1)}x reduction may be overly optimistic`);
+            }
+            if (logicalTotal > usableRawCapacity * 8) {
+                warnings.push(`⚠️ EXCESSIVE LOGICAL DATA: ${formatNumber(logicalTotal, 1)} TiB logical data requires ${formatNumber(logicalTotal / usableRawCapacity, 1)}x efficiency (may be unrealistic)`);
+            }
+            
+            const raidDescription = VSAN_RAID_REQUIREMENTS[raidLevel]?.description || 'RAID-1';
             
             return {
                 logicalTotal, totalCompressed, esaOverhead, totalDedupeSavings,
                 checksumOverhead, resilienceMultiplier, netEffective,
                 overallReduction, compressionOnly, dedupeOnly, perWorkloadFinal,
                 domainScaling, raidLevel, raidDescription,
+                // CRITICAL ADDITION: Raw capacity tracking
+                totalRawCapacity, usableRawCapacity, capacityUtilization, warnings,
                 notes: [
                     'Compression enabled by default in vSAN ESA unless application compresses at source.',
                     'Global deduplication domain grows with host count; 4KB blocks deduplicated cluster-wide.',
                     'ESA object overhead measured after compression; appears higher on small clusters.',
                     'Post-process dedupe prioritizes cold data using spare CPU cycles during quiet periods.',
-                    `Storage policy: ${raidDescription} with ${formatNumber((resilienceMultiplier - 1) * 100, 0)}% overhead`,
+                    `Storage policy: ${raidDescription} - Raw: ${formatNumber(totalRawCapacity, 1)} TiB, Usable: ${formatNumber(usableRawCapacity, 1)} TiB`,
+                    `Capacity utilization: ${formatNumber(capacityUtilization, 1)}% of usable raw capacity`,
                     `Domain scaling factor: ${formatNumber(domainScaling, 3)} (${hosts} hosts, ${domainMode} sensitivity)`
                 ]
             };
@@ -1285,6 +1320,8 @@
             svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
             
             const data = [
+                { label: 'Raw Capacity', value: result.totalRawCapacity, color: '#64748b', gradient: '#94a3b8' },
+                { label: 'Usable Raw', value: result.usableRawCapacity, color: '#6b7280', gradient: '#9ca3af' },
                 { label: 'Logical', value: result.logicalTotal, color: '#3b82f6', gradient: '#60a5fa' },
                 { label: 'Compressed', value: result.totalCompressed, color: '#10b981', gradient: '#34d399' },
                 { label: 'After Dedupe', value: result.totalCompressed - result.totalDedupeSavings, color: '#f59e0b', gradient: '#fbbf24' },
@@ -1331,14 +1368,14 @@
                 rect.setAttribute('height', barHeight);
                 rect.setAttribute('fill', `url(#gradient${i})`);
                 rect.setAttribute('rx', '4');
-                rect.setAttribute('opacity', '0.9');
+                rect.setAttribute('opacity', i < 2 ? '0.6' : '0.9'); // Make raw capacity bars more subdued
                 svg.appendChild(rect);
                 
                 const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
                 text.setAttribute('x', x + barWidth / 2);
                 text.setAttribute('y', height - 15);
                 text.setAttribute('text-anchor', 'middle');
-                text.setAttribute('font-size', '11');
+                text.setAttribute('font-size', '10');
                 text.setAttribute('fill', '#8a99af');
                 text.setAttribute('font-weight', '500');
                 text.textContent = d.label;
@@ -1348,7 +1385,7 @@
                 valueText.setAttribute('x', x + barWidth / 2);
                 valueText.setAttribute('y', y - 8);
                 valueText.setAttribute('text-anchor', 'middle');
-                valueText.setAttribute('font-size', '10');
+                valueText.setAttribute('font-size', '9');
                 valueText.setAttribute('fill', '#64748b');
                 valueText.setAttribute('font-weight', '600');
                 valueText.textContent = formatNumber(d.value, 0) + ' TiB';
@@ -1361,15 +1398,18 @@
             document.getElementById('compressionReduction').textContent = formatNumber(result.compressionOnly, 1) + 'x';
             document.getElementById('dedupeReduction').textContent = formatNumber(result.dedupeOnly, 1) + 'x';
             
+            // CRITICAL FIX: Update breakdown table to include raw capacity context
             const breakdownTable = document.getElementById('breakdownTable');
+            const hosts = parseInt(document.getElementById('hosts').value) || 6;
             breakdownTable.innerHTML = `
+                <tr class="raw-capacity-row"><td>Raw Physical Capacity</td><td>${formatNumber(result.totalRawCapacity, 1)} TiB</td><td>Total raw storage across ${hosts} hosts</td></tr>
+                <tr class="raw-capacity-row"><td>Usable Raw Capacity</td><td>${formatNumber(result.usableRawCapacity, 1)} TiB</td><td>After ${result.raidDescription} overhead</td></tr>
                 <tr><td>Logical Data</td><td>${formatNumber(result.logicalTotal, 1)} TiB</td><td>Original dataset size</td></tr>
                 <tr><td>After Compression</td><td>${formatNumber(result.totalCompressed, 1)} TiB</td><td>ESA 512B sector compression</td></tr>
                 <tr><td>After Deduplication</td><td>${formatNumber(result.totalCompressed - result.totalDedupeSavings, 1)} TiB</td><td>Global 4KB block dedupe</td></tr>
                 <tr><td>ESA Object Overhead</td><td>+${formatNumber(result.esaOverhead, 1)} TiB</td><td>Dedupe/compression metadata</td></tr>
                 <tr><td>Checksum Overhead</td><td>+${formatNumber(result.checksumOverhead, 1)} TiB</td><td>Data integrity metadata</td></tr>
-                <tr><td>Storage Policy</td><td>×${formatNumber(result.resilienceMultiplier, 2)}</td><td>${result.raidDescription}</td></tr>
-                <tr class="highlight-row"><td>Net Effective Capacity</td><td>${formatNumber(result.netEffective, 1)} TiB</td><td>Final storage consumption</td></tr>
+                <tr class="highlight-row"><td>Net Effective Capacity</td><td>${formatNumber(result.netEffective, 1)} TiB</td><td>Final storage consumption (${formatNumber(result.capacityUtilization, 1)}% utilization)</td></tr>
             `;
             
             const workloadDetailsTable = document.getElementById('workloadDetailsTable');
@@ -1387,6 +1427,9 @@
             guidanceNotes.innerHTML = result.notes.map(note => `<li>${note}</li>`).join('');
             
             createWaterfallChart(result);
+            
+            // CRITICAL FIX: Show capacity warnings
+            showWarnings(result.warnings);
         }
 
         function showErrors(errors) {
@@ -1398,6 +1441,19 @@
                 errorDiv.classList.remove('hidden');
             } else {
                 errorDiv.classList.add('hidden');
+            }
+        }
+
+        // CRITICAL FIX: Add warning display function
+        function showWarnings(warnings) {
+            const warningDiv = document.getElementById('warnings');
+            if (warnings.length > 0) {
+                warningDiv.className = 'alert alert-warning';
+                warningDiv.innerHTML = '<strong>⚠️ Capacity Warnings:</strong><ul style="margin: 0.5rem 0 0 0; padding-left: 1.2rem;">' + 
+                    warnings.map(warning => `<li>${warning}</li>`).join('') + '</ul>';
+                warningDiv.classList.remove('hidden');
+            } else {
+                warningDiv.classList.add('hidden');
             }
         }
 
@@ -1416,6 +1472,7 @@
                 } catch (error) {
                     console.error('Calculation error:', error);
                     showErrors(['Calculation failed: ' + error.message]);
+                    showWarnings([]);
                 }
             }, 200);
         }
