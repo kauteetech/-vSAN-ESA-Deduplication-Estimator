@@ -1,0 +1,1463 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>vSAN ESA Deduplication Estimator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* [Previous CSS styles remain the same...] */
+        :root {
+            /* TailAdmin Dark Theme Color Palette */
+            --primary: #4f46e5;
+            --primary-light: #6366f1;
+            --secondary: #06b6d4;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            
+            /* Dark Background System */
+            --bg-dark: #1c2434;
+            --bg-darker: #24303f;
+            --bg-darkest: #1a222c;
+            --surface-dark: #313d4a;
+            --surface-darker: #253041;
+            --surface-darkest: #1e2a37;
+            
+            /* Text Colors */
+            --text-primary: #ffffff;
+            --text-secondary: #8a99af;
+            --text-tertiary: #64748b;
+            --text-muted: #5a6c7d;
+            
+            /* Border Colors */
+            --border-dark: #2e3a47;
+            --border-darker: #374151;
+            
+            /* Blue Accent (Chart colors) */
+            --blue-500: #3b82f6;
+            --blue-600: #2563eb;
+            --green-500: #10b981;
+            --amber-500: #f59e0b;
+            --cyan-500: #06b6d4;
+            
+            /* Typography */
+            --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            --text-xs: 0.75rem;
+            --text-sm: 0.875rem;
+            --text-base: 1rem;
+            --text-lg: 1.125rem;
+            --text-xl: 1.25rem;
+            --text-2xl: 1.5rem;
+            
+            /* Spacing */
+            --space-2: 0.5rem;
+            --space-3: 0.75rem;
+            --space-4: 1rem;
+            --space-5: 1.25rem;
+            --space-6: 1.5rem;
+            --space-8: 2rem;
+            
+            /* Border Radius */
+            --rounded-lg: 0.5rem;
+            --rounded-xl: 0.75rem;
+            --rounded-2xl: 1rem;
+            
+            /* Shadows */
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--font-family);
+            background: var(--bg-dark);
+            min-height: 100vh;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            color: var(--text-primary);
+            font-size: var(--text-sm);
+            line-height: 1.5;
+        }
+
+        .header {
+            background: var(--bg-darker);
+            border-bottom: 1px solid var(--border-dark);
+            padding: var(--space-4) var(--space-6);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 70px;
+            position: relative;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: var(--text-xl);
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+        }
+
+        .logo {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-light));
+            border-radius: var(--rounded-lg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: var(--text-lg);
+            box-shadow: var(--shadow-md);
+            color: var(--text-primary);
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            color: var(--text-secondary);
+            font-size: var(--text-xs);
+            background: var(--surface-dark);
+            padding: var(--space-2) var(--space-3);
+            border-radius: 16px;
+            border: 1px solid var(--border-dark);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--success);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .main-container {
+            display: flex;
+            height: calc(100vh - 70px);
+            gap: var(--space-6);
+            padding: var(--space-6);
+        }
+
+        .panel {
+            background: var(--bg-darker);
+            border: 1px solid var(--border-dark);
+            border-radius: var(--rounded-2xl);
+            overflow: hidden;
+            position: relative;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .input-panel {
+            width: 45%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .results-panel {
+            width: 55%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel-header {
+            padding: var(--space-5) var(--space-6);
+            background: var(--bg-darkest);
+            color: var(--text-primary);
+            font-weight: 600;
+            font-size: var(--text-lg);
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            border-bottom: 1px solid var(--border-dark);
+        }
+
+        .panel-icon {
+            width: 24px;
+            height: 24px;
+            background: var(--surface-dark);
+            border-radius: var(--rounded-lg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: var(--text-sm);
+            color: var(--text-primary);
+            border: 1px solid var(--border-darker);
+        }
+
+        .panel-body {
+            padding: var(--space-6);
+            overflow-y: auto;
+            flex: 1;
+            background: var(--surface-darker);
+        }
+
+        .section {
+            margin-bottom: var(--space-8);
+        }
+
+        .section-title {
+            font-size: var(--text-base);
+            font-weight: 600;
+            margin-bottom: var(--space-4);
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+        }
+
+        .section-title::before {
+            content: '';
+            width: 4px;
+            height: 16px;
+            background: var(--primary);
+            border-radius: 2px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--space-4);
+            margin-bottom: var(--space-4);
+        }
+
+        .form-group {
+            margin-bottom: var(--space-4);
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: var(--space-2);
+            font-weight: 500;
+            color: var(--text-secondary);
+            font-size: var(--text-sm);
+        }
+
+        .form-control {
+            width: 100%;
+            padding: var(--space-3) var(--space-4);
+            background: var(--surface-dark);
+            border: 1px solid var(--border-dark);
+            border-radius: var(--rounded-lg);
+            font-size: var(--text-sm);
+            color: var(--text-primary);
+            transition: all 0.3s ease;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--primary);
+            background: var(--surface-darkest);
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        }
+
+        .form-control:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .form-control::placeholder {
+            color: var(--text-muted);
+        }
+
+        .checkbox-wrapper {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            padding: var(--space-3);
+            background: var(--surface-dark);
+            border-radius: var(--rounded-lg);
+            border: 1px solid var(--border-dark);
+            transition: all 0.3s ease;
+        }
+
+        .checkbox-wrapper:hover {
+            background: var(--surface-darkest);
+            border-color: var(--border-darker);
+        }
+
+        .custom-checkbox {
+            position: relative;
+            width: 20px;
+            height: 20px;
+        }
+
+        .custom-checkbox input {
+            opacity: 0;
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+
+        .checkmark {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 20px;
+            height: 20px;
+            background: var(--surface-darkest);
+            border: 2px solid var(--border-darker);
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+
+        .custom-checkbox input:checked + .checkmark {
+            background: var(--primary);
+            border-color: var(--primary);
+        }
+
+        .checkmark::after {
+            content: '';
+            position: absolute;
+            display: none;
+            left: 6px;
+            top: 2px;
+            width: 4px;
+            height: 8px;
+            border: solid var(--text-primary);
+            border-width: 0 2px 2px 0;
+            transform: rotate(45deg);
+        }
+
+        .custom-checkbox input:checked + .checkmark::after {
+            display: block;
+        }
+
+        .btn {
+            padding: var(--space-3) var(--space-6);
+            border: none;
+            border-radius: var(--rounded-xl);
+            font-size: var(--text-sm);
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: var(--text-primary);
+            box-shadow: var(--shadow-md);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-lg);
+            background: var(--primary-light);
+        }
+
+        .btn-outline {
+            background: var(--surface-dark);
+            border: 1px solid var(--border-dark);
+            color: var(--text-secondary);
+        }
+
+        .btn-outline:hover {
+            background: var(--surface-darkest);
+            border-color: var(--border-darker);
+            color: var(--text-primary);
+        }
+
+        .btn-danger {
+            background: var(--surface-dark);
+            color: var(--text-secondary);
+            padding: var(--space-2) var(--space-3);
+            font-size: var(--text-xs);
+            border: 1px solid var(--border-dark);
+        }
+
+        .btn-danger:hover {
+            background: var(--danger);
+            color: var(--text-primary);
+            border-color: var(--danger);
+        }
+
+        .workload-item {
+            background: var(--surface-dark);
+            border: 1px solid var(--border-dark);
+            border-radius: var(--rounded-xl);
+            padding: var(--space-4);
+            margin-bottom: var(--space-4);
+            transition: all 0.3s ease;
+        }
+
+        .workload-item:hover {
+            background: var(--surface-darkest);
+            border-color: var(--border-darker);
+            transform: translateY(-1px);
+        }
+
+        .workload-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: var(--space-3);
+        }
+
+        .workload-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--space-3);
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: var(--space-4);
+            margin-bottom: var(--space-6);
+        }
+
+        .metric-card {
+            background: var(--surface-dark);
+            border: 1px solid var(--border-dark);
+            border-radius: var(--rounded-xl);
+            padding: var(--space-5);
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .metric-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--blue-500), var(--cyan-500), var(--green-500));
+        }
+
+        .metric-card:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+            background: var(--surface-darkest);
+            border-color: var(--border-darker);
+        }
+
+        .metric-value {
+            font-size: var(--text-2xl);
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: var(--space-2);
+        }
+
+        .metric-label {
+            color: var(--text-secondary);
+            font-size: var(--text-xs);
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .chart-container {
+            height: 220px;
+            margin-bottom: var(--space-6);
+            background: var(--surface-dark);
+            border: 1px solid var(--border-dark);
+            border-radius: var(--rounded-xl);
+            padding: var(--space-4);
+        }
+
+        .waterfall-chart {
+            width: 100%;
+            height: 100%;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            background: var(--surface-dark);
+            border-radius: var(--rounded-xl);
+            overflow: hidden;
+            border: 1px solid var(--border-dark);
+        }
+
+        .data-table th,
+        .data-table td {
+            padding: var(--space-3) var(--space-4);
+            text-align: left;
+            border-bottom: 1px solid var(--border-dark);
+        }
+
+        .data-table th {
+            background: var(--bg-darkest);
+            font-weight: 600;
+            color: var(--text-primary);
+            font-size: var(--text-xs);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .data-table td {
+            color: var(--text-secondary);
+            font-size: var(--text-sm);
+        }
+
+        .data-table tr:hover {
+            background: var(--surface-darkest);
+        }
+
+        .highlight-row {
+            background: var(--surface-darkest) !important;
+        }
+
+        .highlight-row td {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .animation-container {
+            height: 140px;
+            background: var(--surface-dark);
+            border: 1px solid var(--border-dark);
+            border-radius: var(--rounded-xl);
+            margin-bottom: var(--space-4);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .animation-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(circle at 20% 20%, rgba(79, 70, 229, 0.1) 0%, transparent 40%),
+                radial-gradient(circle at 80% 80%, rgba(6, 182, 212, 0.05) 0%, transparent 40%);
+            animation: domainPulse 4s ease-in-out infinite;
+        }
+
+        @keyframes domainPulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
+        .dedupe-animation {
+            display: flex;
+            align-items: center;
+            justify-content: space-around;
+            height: 100%;
+            position: relative;
+            z-index: 2;
+        }
+
+        .host-node {
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-light));
+            border-radius: var(--rounded-xl);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-primary);
+            font-weight: 700;
+            font-size: var(--text-sm);
+            box-shadow: var(--shadow-md);
+            animation: hostFloat 3s ease-in-out infinite;
+            position: relative;
+            border: 1px solid var(--border-darker);
+        }
+
+        @keyframes hostFloat {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-6px); }
+        }
+
+        .dedupe-domain {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            right: 12px;
+            bottom: 12px;
+            border: 2px dashed var(--text-tertiary);
+            border-radius: var(--rounded-xl);
+            animation: domainExpand 4s ease-in-out infinite;
+        }
+
+        @keyframes domainExpand {
+            0%, 100% { 
+                transform: scale(1);
+                border-color: var(--text-tertiary);
+            }
+            50% { 
+                transform: scale(1.02);
+                border-color: var(--success);
+            }
+        }
+
+        .alert {
+            padding: var(--space-4);
+            border-radius: var(--rounded-xl);
+            margin-bottom: var(--space-4);
+            background: var(--surface-dark);
+            border: 1px solid var(--border-dark);
+        }
+
+        .alert-info {
+            background: var(--surface-dark);
+            border-color: var(--border-dark);
+            color: var(--text-secondary);
+        }
+
+        .alert-danger {
+            background: var(--surface-dark);
+            border-left: 4px solid var(--danger);
+            color: var(--text-secondary);
+        }
+
+        .alert-warning {
+            background: var(--surface-dark);
+            border-left: 4px solid var(--warning);
+            color: var(--text-secondary);
+        }
+
+        .tooltip {
+            position: relative;
+            display: inline-block;
+            cursor: help;
+            color: var(--text-tertiary);
+            margin-left: var(--space-2);
+            transition: all 0.3s ease;
+        }
+
+        .tooltip:hover {
+            color: var(--primary);
+        }
+
+        .tooltip::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 125%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--bg-darkest);
+            color: var(--text-primary);
+            padding: var(--space-3);
+            border-radius: var(--rounded-lg);
+            font-size: var(--text-xs);
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+            z-index: 1000;
+            max-width: 250px;
+            white-space: normal;
+            box-shadow: var(--shadow-lg);
+            border: 1px solid var(--border-dark);
+        }
+
+        .tooltip:hover::after {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .auto-calculate-banner {
+            background: var(--surface-dark);
+            border: 1px solid var(--border-dark);
+            padding: var(--space-3);
+            border-radius: var(--rounded-xl);
+            text-align: center;
+            font-size: var(--text-sm);
+            color: var(--text-secondary);
+            margin-bottom: var(--space-6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--space-2);
+        }
+
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--success);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        /* Custom Scrollbar - Dark Theme */
+        .panel-body::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .panel-body::-webkit-scrollbar-track {
+            background: var(--surface-darkest);
+            border-radius: 3px;
+        }
+
+        .panel-body::-webkit-scrollbar-thumb {
+            background: var(--text-tertiary);
+            border-radius: 3px;
+        }
+
+        .panel-body::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 1200px) {
+            .main-container {
+                flex-direction: column;
+                height: auto;
+                overflow-y: auto;
+            }
+            
+            .input-panel,
+            .results-panel {
+                width: 100%;
+                height: auto;
+            }
+            
+            body {
+                overflow: auto;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .form-row,
+            .metrics-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .workload-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .main-container {
+                padding: var(--space-4);
+                gap: var(--space-4);
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div style="display: flex; align-items: center;">
+            <div class="logo">🗄️</div>
+            <h1>vSAN ESA Deduplication Estimator</h1>
+        </div>
+        <div class="status-indicator">
+            <div class="status-dot"></div>
+            Live Updates Active
+        </div>
+    </header>
+
+    <div class="main-container">
+        <!-- Input Panel -->
+        <div class="input-panel panel">
+            <div class="panel-header">
+                <div class="panel-icon">⚙️</div>
+                Configuration
+            </div>
+            <div class="panel-body">
+                <div class="auto-calculate-banner">
+                    <div class="pulse-dot"></div>
+                    Results update automatically as you adjust settings
+                </div>
+
+                <!-- Cluster Configuration -->
+                <div class="section">
+                    <div class="section-title">Cluster Profile</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label" for="hosts">
+                                Number of Hosts
+                                <span class="tooltip" data-tooltip="vSAN requires minimum 3 hosts for quorum. Available RAID types depend on host count.">ℹ️</span>
+                            </label>
+                            <input type="number" id="hosts" class="form-control" value="6" min="3">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="rawTiBPerHost">
+                                Raw TiB per Host
+                                <span class="tooltip" data-tooltip="Raw storage capacity per host before any efficiency techniques.">ℹ️</span>
+                            </label>
+                            <input type="number" id="rawTiBPerHost" class="form-control" value="20" step="0.1" min="1">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label" for="raidLevel">
+                                Storage Policy (RAID)
+                                <span class="tooltip" data-tooltip="Available RAID types based on VMware vSAN 9.0 architecture requirements and host count.">ℹ️</span>
+                            </label>
+                            <select id="raidLevel" class="form-control">
+                                <!-- Options will be populated dynamically based on host count -->
+                            </select>
+                            <div id="raidRequirement" class="alert alert-warning hidden" style="margin-top: 0.5rem; padding: 0.5rem;">
+                                <!-- RAID requirement warning will appear here -->
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="domainMode">
+                                Scaling Sensitivity
+                                <span class="tooltip" data-tooltip="How aggressively we model deduplication improvement as cluster grows.">ℹ️</span>
+                            </label>
+                            <select id="domainMode" class="form-control">
+                                <option value="conservative">Conservative</option>
+                                <option value="typical" selected>Typical</option>
+                                <option value="aggressive">Aggressive</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="checkbox-wrapper">
+                        <div class="custom-checkbox">
+                            <input type="checkbox" id="compressionOn" checked>
+                            <div class="checkmark"></div>
+                        </div>
+                        <label class="form-label" for="compressionOn" style="margin: 0;">
+                            Enable Compression
+                            <span class="tooltip" data-tooltip="ESA compresses by default at 512B granularity within 4KB blocks.">ℹ️</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- System Overheads -->
+                <div class="section">
+                    <div class="section-title">System Overheads</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label" for="esaOverheadRate">
+                                ESA Overhead (%)
+                                <span class="tooltip" data-tooltip="ESA metadata overhead as percentage of compressed data.">ℹ️</span>
+                            </label>
+                            <input type="number" id="esaOverheadRate" class="form-control" value="8" step="1" min="0" max="20">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="checksumRate">
+                                Checksum Overhead (%)
+                                <span class="tooltip" data-tooltip="Checksum metadata as percentage of net data after deduplication.">ℹ️</span>
+                            </label>
+                            <input type="number" id="checksumRate" class="form-control" value="2" step="0.5" min="0" max="10">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Domain Animation -->
+                <div class="section">
+                    <div class="section-title">Global Deduplication Domain</div>
+                    <div class="animation-container">
+                        <div class="dedupe-animation" id="animationContainer">
+                            <div class="dedupe-domain"></div>
+                        </div>
+                    </div>
+                    <div class="alert alert-info">
+                        <strong>Domain Growth:</strong> Unlike traditional arrays, vSAN ESA's cluster-wide domain expands with each host, improving duplicate detection probability.
+                    </div>
+                </div>
+
+                <!-- Workloads -->
+                <div class="section">
+                    <div class="section-title">Workload Mix</div>
+                    <div id="workloadsContainer">
+                        <!-- Workload items will be added here -->
+                    </div>
+                    <button type="button" class="btn btn-outline" onclick="addWorkload()">
+                        + Add Workload
+                    </button>
+                </div>
+
+                <div id="errors" class="hidden"></div>
+            </div>
+        </div>
+
+        <!-- Results Panel -->
+        <div class="results-panel panel">
+            <div class="panel-header">
+                <div class="panel-icon">📊</div>
+                Results & Analysis
+            </div>
+            <div class="panel-body">
+                <!-- Key Metrics -->
+                <div class="section">
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <div class="metric-value" id="overallReduction">-</div>
+                            <div class="metric-label">Overall Reduction</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value" id="compressionReduction">-</div>
+                            <div class="metric-label">Compression Only</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value" id="dedupeReduction">-</div>
+                            <div class="metric-label">Deduplication Only</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Waterfall Chart -->
+                <div class="section">
+                    <div class="section-title">Capacity Transformation</div>
+                    <div class="chart-container">
+                        <svg class="waterfall-chart" id="waterfallChart">
+                            <!-- Chart will be generated -->
+                        </svg>
+                    </div>
+                </div>
+
+                <!-- Capacity Breakdown -->
+                <div class="section">
+                    <div class="section-title">Detailed Breakdown</div>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Stage</th>
+                                <th>Capacity (TiB)</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody id="breakdownTable">
+                            <!-- Breakdown rows -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Per-Workload Analysis -->
+                <div class="section">
+                    <div class="section-title">Workload Analysis</div>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Workload Type</th>
+                                <th>Logical</th>
+                                <th>Compressed</th>
+                                <th>Dedupe Savings</th>
+                                <th>Efficiency</th>
+                            </tr>
+                        </thead>
+                        <tbody id="workloadDetailsTable">
+                            <!-- Workload details -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- VMware Guidance -->
+                <div class="section">
+                    <div class="alert alert-info">
+                        <strong>🏢 VMware vSAN ESA Guidance</strong>
+                        <ul id="guidanceNotes" style="margin: 0.75rem 0 0 0; padding-left: 1.2rem; font-size: var(--text-sm); line-height: 1.6;">
+                            <!-- Notes will be populated -->
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration and data models
+        const DEFAULT_COMPRESSION_BY_TYPE = {
+            'full_clone_vdi': { min: 2.0, max: 8.0, default: 4.0 },
+            'unstructured': { min: 1.2, max: 2.5, default: 1.6 },
+            'oltp_sql': { min: 1.0, max: 1.6, default: 1.2 },
+            'encrypted': { min: 1.0, max: 1.05, default: 1.0 },
+            'backup': { min: 1.5, max: 3.0, default: 2.0 }
+        };
+
+        const DEFAULT_SIMILARITY = {
+            'full_clone_vdi': 0.85,
+            'unstructured': 0.35,
+            'oltp_sql': 0.15,
+            'encrypted': 0.0,
+            'backup': 0.5
+        };
+
+        const WORKLOAD_TYPES = {
+            'full_clone_vdi': 'VDI Clones',
+            'unstructured': 'Unstructured',
+            'oltp_sql': 'OLTP/SQL',
+            'encrypted': 'Encrypted',
+            'backup': 'Backup'
+        };
+
+        // VMware vSAN 9.0 RAID Requirements (CRITICAL FUNCTIONAL FIX)
+        const VSAN_RAID_REQUIREMENTS = {
+            raid1: { minHosts: 3, ftt: 1, description: 'RAID-1 Mirror (FTT=1)' },
+            raid5: { minHosts: 4, ftt: 1, description: 'RAID-5 Erasure Coding (FTT=1)' },
+            raid10: { minHosts: 4, ftt: 1, description: 'RAID-10 Mirror Striping (FTT=1)' },
+            raid6: { minHosts: 6, ftt: 2, description: 'RAID-6 Erasure Coding (FTT=2)' }
+        };
+
+        const RESILIENCE_MULTIPLIERS = {
+            raid1: 2.0,    // 100% overhead for mirroring
+            raid5: 1.33,   // ~33% overhead for RAID-5
+            raid10: 2.0,   // 100% overhead for RAID-10
+            raid6: 1.5     // 50% overhead for RAID-6
+        };
+
+        let workloadCounter = 0;
+
+        // Utility functions
+        function clamp(value, min, max) {
+            return Math.max(min, Math.min(max, value));
+        }
+
+        function safeDiv(a, b) {
+            return b === 0 ? 0 : a / b;
+        }
+
+        function domainScalingFactor(hosts, mode) {
+            const cap = mode === 'aggressive' ? 1.0 : mode === 'typical' ? 0.8 : 0.6;
+            const k = mode === 'aggressive' ? 0.22 : mode === 'typical' ? 0.18 : 0.12;
+            const x = Math.max(0, hosts - 2);
+            return cap * (1 - Math.exp(-k * x));
+        }
+
+        function formatNumber(num, decimals = 1) {
+            return parseFloat(num).toFixed(decimals);
+        }
+
+        // CRITICAL FIX: Dynamic RAID Options Based on Host Count
+        function updateRaidOptions(hostCount) {
+            const raidSelect = document.getElementById('raidLevel');
+            const raidWarning = document.getElementById('raidRequirement');
+            const currentValue = raidSelect.value;
+            
+            // Clear existing options
+            raidSelect.innerHTML = '';
+            
+            // Get available RAID types based on host count
+            const availableRaids = [];
+            let warnings = [];
+            
+            // Check each RAID type against vSAN requirements
+            Object.entries(VSAN_RAID_REQUIREMENTS).forEach(([raidType, req]) => {
+                if (hostCount >= req.minHosts) {
+                    availableRaids.push({
+                        value: raidType,
+                        label: req.description,
+                        ftt: req.ftt
+                    });
+                } else {
+                    warnings.push(`${req.description} requires minimum ${req.minHosts} hosts`);
+                }
+            });
+            
+            // Add available options
+            availableRaids.forEach(raid => {
+                const option = document.createElement('option');
+                option.value = raid.value;
+                option.textContent = raid.label;
+                raidSelect.appendChild(option);
+            });
+            
+            // Set default selection or preserve current if valid
+            if (availableRaids.find(r => r.value === currentValue)) {
+                raidSelect.value = currentValue;
+            } else {
+                // Default to RAID-1 if available, otherwise first available option
+                const defaultRaid = availableRaids.find(r => r.value === 'raid1') || availableRaids[0];
+                if (defaultRaid) {
+                    raidSelect.value = defaultRaid.value;
+                }
+            }
+            
+            // Show warnings if any RAID types are unavailable
+            if (warnings.length > 0 && hostCount < 6) {
+                raidWarning.innerHTML = `<strong>Host Count Limitations:</strong><br>${warnings.join('<br>')}`;
+                raidWarning.classList.remove('hidden');
+            } else {
+                raidWarning.classList.add('hidden');
+            }
+            
+            return availableRaids.length > 0;
+        }
+
+        function createWorkloadItem(type = 'unstructured', logicalTiB = 50, coldPct = 0.6) {
+            const id = workloadCounter++;
+            const item = document.createElement('div');
+            item.className = 'workload-item';
+            item.dataset.id = id;
+            
+            item.innerHTML = `
+                <div class="workload-header">
+                    <select class="form-control workload-type" data-id="${id}" style="width: 65%;">
+                        ${Object.entries(WORKLOAD_TYPES).map(([key, label]) => 
+                            `<option value="${key}" ${key === type ? 'selected' : ''}>${label}</option>`
+                        ).join('')}
+                    </select>
+                    <button type="button" class="btn btn-danger" onclick="removeWorkload(${id})" title="Remove workload">×</button>
+                </div>
+                <div class="workload-grid">
+                    <div class="form-group">
+                        <label class="form-label">Logical Data (TiB)</label>
+                        <input type="number" class="form-control workload-logical" data-id="${id}" 
+                               value="${logicalTiB}" step="1" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Cold Data Ratio</label>
+                        <input type="number" class="form-control workload-cold" data-id="${id}" 
+                               value="${coldPct}" step="0.1" min="0" max="1" placeholder="0.0 - 1.0">
+                    </div>
+                </div>
+            `;
+            
+            item.querySelectorAll('input, select').forEach(input => {
+                input.addEventListener('input', autoCalculate);
+                input.addEventListener('change', autoCalculate);
+            });
+            
+            return item;
+        }
+
+        function addWorkload(type = 'unstructured', logicalTiB = 50, coldPct = 0.6) {
+            const container = document.getElementById('workloadsContainer');
+            const item = createWorkloadItem(type, logicalTiB, coldPct);
+            container.appendChild(item);
+            autoCalculate();
+        }
+
+        function removeWorkload(id) {
+            const item = document.querySelector(`[data-id="${id}"]`);
+            if (item) {
+                item.style.transform = 'translateX(-100%)';
+                item.style.opacity = '0';
+                setTimeout(() => {
+                    item.remove();
+                    autoCalculate();
+                }, 300);
+            }
+        }
+
+        function getWorkloads() {
+            return Array.from(document.querySelectorAll('.workload-item')).map(item => {
+                const id = item.dataset.id;
+                const typeSelect = item.querySelector('.workload-type');
+                const logicalInput = item.querySelector('.workload-logical');
+                const coldInput = item.querySelector('.workload-cold');
+                
+                return {
+                    id: id,
+                    type: typeSelect ? typeSelect.value : 'unstructured',
+                    logicalTiB: logicalInput ? parseFloat(logicalInput.value) || 0 : 0,
+                    coldPct: coldInput ? parseFloat(coldInput.value) || 0 : 0
+                };
+            });
+        }
+
+        function validateInputs() {
+            const errors = [];
+            const hosts = parseInt(document.getElementById('hosts').value) || 0;
+            const rawTiBPerHost = parseFloat(document.getElementById('rawTiBPerHost').value) || 0;
+            const raidLevel = document.getElementById('raidLevel').value;
+            
+            if (hosts < 3) {
+                errors.push('Host count must be ≥ 3 for vSAN quorum.');
+            } else if (raidLevel && VSAN_RAID_REQUIREMENTS[raidLevel]) {
+                const minRequired = VSAN_RAID_REQUIREMENTS[raidLevel].minHosts;
+                if (hosts < minRequired) {
+                    errors.push(`${VSAN_RAID_REQUIREMENTS[raidLevel].description} requires minimum ${minRequired} hosts (current: ${hosts}).`);
+                }
+            }
+            
+            if (rawTiBPerHost <= 0) errors.push('Raw TiB per host must be > 0.');
+            
+            const workloads = getWorkloads();
+            const totalLogical = workloads.reduce((sum, w) => sum + w.logicalTiB, 0);
+            if (totalLogical <= 0) errors.push('Total logical dataset must be > 0.');
+            
+            return errors;
+        }
+
+        function calculateEstimate() {
+            const hosts = parseInt(document.getElementById('hosts').value) || 6;
+            const raidLevel = document.getElementById('raidLevel').value || 'raid1';
+            const compressionOn = document.getElementById('compressionOn').checked;
+            const domainMode = document.getElementById('domainMode').value || 'typical';
+            const esaOverheadRate = (parseFloat(document.getElementById('esaOverheadRate').value) || 8) / 100;
+            const checksumRate = (parseFloat(document.getElementById('checksumRate').value) || 2) / 100;
+            
+            const workloads = getWorkloads();
+            const logicalTotal = workloads.reduce((sum, w) => sum + w.logicalTiB, 0);
+            
+            if (logicalTotal === 0) {
+                throw new Error('No workload data available');
+            }
+            
+            const perWorkload = workloads.map(w => {
+                const compressionProfile = DEFAULT_COMPRESSION_BY_TYPE[w.type] || { default: 1.0 };
+                const compressionFactor = compressionOn ? compressionProfile.default : 1.0;
+                const compressed = w.logicalTiB / compressionFactor;
+                const cold = compressed * clamp(w.coldPct, 0, 1);
+                
+                return { ...w, compressed, cold, compressionFactor };
+            });
+            
+            const totalCompressed = perWorkload.reduce((sum, p) => sum + p.compressed, 0);
+            const sizeFactor = 1 - Math.min(0.04, Math.log10(Math.max(1, totalCompressed + 1)) / 100);
+            const esaOverhead = esaOverheadRate * sizeFactor * totalCompressed;
+            const domainScaling = domainScalingFactor(hosts, domainMode);
+            
+            let totalDedupeSavings = 0;
+            const perWorkloadFinal = perWorkload.map(p => {
+                const similarity = DEFAULT_SIMILARITY[p.type] || 0;
+                const dedupeProbability = clamp(similarity * domainScaling, 0, 1);
+                const efficiency = compressionOn ? 0.55 : 0.7;
+                const dedupeSavings = clamp(p.cold * dedupeProbability * efficiency, 0, p.cold);
+                
+                totalDedupeSavings += dedupeSavings;
+                
+                return { ...p, similarity, dedupeSavings };
+            });
+            
+            const checksumOverhead = checksumRate * Math.max(0, totalCompressed - totalDedupeSavings);
+            
+            // CRITICAL FIX: Use correct resilience multiplier based on RAID type
+            const resilienceMultiplier = RESILIENCE_MULTIPLIERS[raidLevel] || 1.33;
+            const raidDescription = VSAN_RAID_REQUIREMENTS[raidLevel]?.description || 'RAID-1';
+            
+            const netEffective = (totalCompressed - totalDedupeSavings + esaOverhead + checksumOverhead) * resilienceMultiplier;
+            
+            const overallReduction = safeDiv(logicalTotal, netEffective);
+            const compressionOnly = safeDiv(logicalTotal, totalCompressed);
+            const dedupeOnly = safeDiv(totalCompressed, Math.max(1e-9, totalCompressed - totalDedupeSavings));
+            
+            return {
+                logicalTotal, totalCompressed, esaOverhead, totalDedupeSavings,
+                checksumOverhead, resilienceMultiplier, netEffective,
+                overallReduction, compressionOnly, dedupeOnly, perWorkloadFinal,
+                domainScaling, raidLevel, raidDescription,
+                notes: [
+                    'Compression enabled by default in vSAN ESA unless application compresses at source.',
+                    'Global deduplication domain grows with host count; 4KB blocks deduplicated cluster-wide.',
+                    'ESA object overhead measured after compression; appears higher on small clusters.',
+                    'Post-process dedupe prioritizes cold data using spare CPU cycles during quiet periods.',
+                    `Storage policy: ${raidDescription} with ${formatNumber((resilienceMultiplier - 1) * 100, 0)}% overhead`,
+                    `Domain scaling factor: ${formatNumber(domainScaling, 3)} (${hosts} hosts, ${domainMode} sensitivity)`
+                ]
+            };
+        }
+
+        function updateAnimation(hosts) {
+            const container = document.getElementById('animationContainer');
+            
+            container.querySelectorAll('.host-node').forEach(node => node.remove());
+            
+            const maxHosts = Math.min(hosts, 6);
+            for (let i = 0; i < maxHosts; i++) {
+                const node = document.createElement('div');
+                node.className = 'host-node';
+                node.textContent = i + 1;
+                node.style.animationDelay = `${i * 0.3}s`;
+                container.appendChild(node);
+            }
+            
+            if (hosts > 6) {
+                const node = document.createElement('div');
+                node.className = 'host-node';
+                node.textContent = `+${hosts - 6}`;
+                node.style.fontSize = '0.7rem';
+                node.style.animationDelay = '1.8s';
+                container.appendChild(node);
+            }
+        }
+
+        function createWaterfallChart(result) {
+            const svg = document.getElementById('waterfallChart');
+            svg.innerHTML = '';
+            
+            const width = 500;
+            const height = 180;
+            const margin = { top: 20, right: 20, bottom: 50, left: 50 };
+            const chartWidth = width - margin.left - margin.right;
+            const chartHeight = height - margin.top - margin.bottom;
+            
+            svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+            
+            const data = [
+                { label: 'Logical', value: result.logicalTotal, color: '#3b82f6', gradient: '#60a5fa' },
+                { label: 'Compressed', value: result.totalCompressed, color: '#10b981', gradient: '#34d399' },
+                { label: 'After Dedupe', value: result.totalCompressed - result.totalDedupeSavings, color: '#f59e0b', gradient: '#fbbf24' },
+                { label: 'Net Effective', value: result.netEffective, color: '#06b6d4', gradient: '#22d3ee' }
+            ];
+            
+            const maxValue = Math.max(...data.map(d => d.value));
+            const barWidth = chartWidth / data.length * 0.7;
+            const barSpacing = chartWidth / data.length;
+            
+            const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+            svg.appendChild(defs);
+            
+            data.forEach((d, i) => {
+                const gradient = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
+                gradient.setAttribute('id', `gradient${i}`);
+                gradient.setAttribute('x1', '0%');
+                gradient.setAttribute('y1', '0%');
+                gradient.setAttribute('x2', '0%');
+                gradient.setAttribute('y2', '100%');
+                
+                const stop1 = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
+                stop1.setAttribute('offset', '0%');
+                stop1.setAttribute('stop-color', d.gradient);
+                
+                const stop2 = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
+                stop2.setAttribute('offset', '100%');
+                stop2.setAttribute('stop-color', d.color);
+                
+                gradient.appendChild(stop1);
+                gradient.appendChild(stop2);
+                defs.appendChild(gradient);
+            });
+            
+            data.forEach((d, i) => {
+                const barHeight = (d.value / maxValue) * chartHeight;
+                const x = margin.left + i * barSpacing + (barSpacing - barWidth) / 2;
+                const y = margin.top + chartHeight - barHeight;
+                
+                const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                rect.setAttribute('x', x);
+                rect.setAttribute('y', y);
+                rect.setAttribute('width', barWidth);
+                rect.setAttribute('height', barHeight);
+                rect.setAttribute('fill', `url(#gradient${i})`);
+                rect.setAttribute('rx', '4');
+                rect.setAttribute('opacity', '0.9');
+                svg.appendChild(rect);
+                
+                const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                text.setAttribute('x', x + barWidth / 2);
+                text.setAttribute('y', height - 15);
+                text.setAttribute('text-anchor', 'middle');
+                text.setAttribute('font-size', '11');
+                text.setAttribute('fill', '#8a99af');
+                text.setAttribute('font-weight', '500');
+                text.textContent = d.label;
+                svg.appendChild(text);
+                
+                const valueText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                valueText.setAttribute('x', x + barWidth / 2);
+                valueText.setAttribute('y', y - 8);
+                valueText.setAttribute('text-anchor', 'middle');
+                valueText.setAttribute('font-size', '10');
+                valueText.setAttribute('fill', '#64748b');
+                valueText.setAttribute('font-weight', '600');
+                valueText.textContent = formatNumber(d.value, 0) + ' TiB';
+                svg.appendChild(valueText);
+            });
+        }
+
+        function displayResults(result) {
+            document.getElementById('overallReduction').textContent = formatNumber(result.overallReduction, 1) + 'x';
+            document.getElementById('compressionReduction').textContent = formatNumber(result.compressionOnly, 1) + 'x';
+            document.getElementById('dedupeReduction').textContent = formatNumber(result.dedupeOnly, 1) + 'x';
+            
+            const breakdownTable = document.getElementById('breakdownTable');
+            breakdownTable.innerHTML = `
+                <tr><td>Logical Data</td><td>${formatNumber(result.logicalTotal, 1)} TiB</td><td>Original dataset size</td></tr>
+                <tr><td>After Compression</td><td>${formatNumber(result.totalCompressed, 1)} TiB</td><td>ESA 512B sector compression</td></tr>
+                <tr><td>After Deduplication</td><td>${formatNumber(result.totalCompressed - result.totalDedupeSavings, 1)} TiB</td><td>Global 4KB block dedupe</td></tr>
+                <tr><td>ESA Object Overhead</td><td>+${formatNumber(result.esaOverhead, 1)} TiB</td><td>Dedupe/compression metadata</td></tr>
+                <tr><td>Checksum Overhead</td><td>+${formatNumber(result.checksumOverhead, 1)} TiB</td><td>Data integrity metadata</td></tr>
+                <tr><td>Storage Policy</td><td>×${formatNumber(result.resilienceMultiplier, 2)}</td><td>${result.raidDescription}</td></tr>
+                <tr class="highlight-row"><td>Net Effective Capacity</td><td>${formatNumber(result.netEffective, 1)} TiB</td><td>Final storage consumption</td></tr>
+            `;
+            
+            const workloadDetailsTable = document.getElementById('workloadDetailsTable');
+            workloadDetailsTable.innerHTML = result.perWorkloadFinal.map(w => `
+                <tr>
+                    <td>${WORKLOAD_TYPES[w.type]}</td>
+                    <td>${formatNumber(w.logicalTiB, 1)} TiB</td>
+                    <td>${formatNumber(w.compressed, 1)} TiB</td>
+                    <td>${formatNumber(w.dedupeSavings, 1)} TiB</td>
+                    <td>${formatNumber(safeDiv(w.logicalTiB, w.compressed - w.dedupeSavings), 1)}x</td>
+                </tr>
+            `).join('');
+            
+            const guidanceNotes = document.getElementById('guidanceNotes');
+            guidanceNotes.innerHTML = result.notes.map(note => `<li>${note}</li>`).join('');
+            
+            createWaterfallChart(result);
+        }
+
+        function showErrors(errors) {
+            const errorDiv = document.getElementById('errors');
+            if (errors.length > 0) {
+                errorDiv.className = 'alert alert-danger';
+                errorDiv.innerHTML = '<strong>⚠️ Validation Errors:</strong><ul style="margin: 0.5rem 0 0 0; padding-left: 1.2rem;">' + 
+                    errors.map(error => `<li>${error}</li>`).join('') + '</ul>';
+                errorDiv.classList.remove('hidden');
+            } else {
+                errorDiv.classList.add('hidden');
+            }
+        }
+
+        let calculationTimeout;
+        function autoCalculate() {
+            clearTimeout(calculationTimeout);
+            calculationTimeout = setTimeout(() => {
+                try {
+                    const errors = validateInputs();
+                    showErrors(errors);
+                    
+                    if (errors.length === 0) {
+                        const result = calculateEstimate();
+                        displayResults(result);
+                    }
+                } catch (error) {
+                    console.error('Calculation error:', error);
+                    showErrors(['Calculation failed: ' + error.message]);
+                }
+            }, 200);
+        }
+
+        // CRITICAL FIX: Host count change handler
+        function handleHostCountChange() {
+            const hosts = parseInt(document.getElementById('hosts').value) || 3;
+            
+            // Update RAID options based on host count
+            updateRaidOptions(hosts);
+            
+            // Update animation
+            updateAnimation(hosts);
+            
+            // Recalculate results
+            autoCalculate();
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize RAID options
+            updateRaidOptions(6);
+            
+            // Add default workloads
+            addWorkload('full_clone_vdi', 60, 0.8);
+            addWorkload('oltp_sql', 80, 0.5);
+            addWorkload('unstructured', 100, 0.7);
+            
+            // Add auto-calculation listeners to all inputs
+            document.querySelectorAll('input, select').forEach(input => {
+                if (input.id === 'hosts') {
+                    input.addEventListener('input', handleHostCountChange);
+                    input.addEventListener('change', handleHostCountChange);
+                } else {
+                    input.addEventListener('input', autoCalculate);
+                    input.addEventListener('change', autoCalculate);
+                }
+            });
+            
+            // Initialize animation and perform first calculation
+            updateAnimation(6);
+            setTimeout(autoCalculate, 200);
+        });
+    </script>
+</body>
+</html>
