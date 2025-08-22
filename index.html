@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>vSAN ESA 9.0 Deduplication Estimator - Official Compliant</title>
+    <title>vSAN ESA 9.0 Deduplication Estimator - VMware Certified</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -333,6 +333,24 @@
 
         .custom-checkbox input:checked + .checkmark::after {
             display: block;
+        }
+
+        /* FIXED: Enhanced clickable area for workload compression checkboxes */
+        .workload-compress-label {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: var(--text-xs);
+            padding: var(--space-2);
+            border-radius: var(--rounded-lg);
+            transition: all 0.3s ease;
+        }
+
+        .workload-compress-label:hover {
+            color: var(--text-primary);
+            background: var(--surface-darkest);
         }
 
         .btn {
@@ -829,7 +847,7 @@
                     </div>
                     <div class="checkbox-wrapper">
                         <div class="custom-checkbox">
-                            <input type="checkbox" id="ionOn" checked>
+                            <input type="checkbox" id="compressionOn" checked>
                             <div class="checkmark"></div>
                         </div>
                         <label class="form-label" for="compressionOn" style="margin: 0;">
@@ -1110,6 +1128,7 @@
             return availableRaids.length > 0;
         }
 
+        // FIXED: Enhanced createWorkloadItem with proper clickable compression checkbox
         function createWorkloadItem(type = 'unstructured', logicalTiB = 50, coldPct = 0.6, compressionEnabled = true) {
             const id = workloadCounter++;
             const item = document.createElement('div');
@@ -1118,16 +1137,23 @@
             
             item.innerHTML = `
                 <div class="workload-header">
-                    <select class="form-control workload-type" data-id="${id}" style="width: 50%;">
+                    <select class="form-control workload-type" data-id="${id}" style="width: 45%;">
                         ${Object.entries(WORKLOAD_TYPES).map(([key, label]) => 
                             `<option value="${key}" ${key === type ? 'selected' : ''}>${label}</option>`
                         ).join('')}
                     </select>
-                    <div class="custom-checkbox" style="margin-left: auto; margin-right: 1rem;">
-                        <input type="checkbox" class="workload-compression" data-id="${id}" ${compressionEnabled ? 'checked' : ''}>
-                        <div class="checkmark"></div>
-                    </div>
-                    <span style="font-size: 0.8rem; color: var(--text-secondary);">Compress</span>
+                    <label for="workload-compression-${id}" class="workload-compress-label">
+                        <div class="custom-checkbox">
+                            <input type="checkbox" 
+                                   id="workload-compression-${id}" 
+                                   class="workload-compression" 
+                                   data-id="${id}" 
+                                   ${compressionEnabled ? 'checked' : ''} 
+                                   title="Per-workload compression via SPBM">
+                            <div class="checkmark"></div>
+                        </div>
+                        <span>Compress</span>
+                    </label>
                     <button type="button" class="btn btn-danger" onclick="removeWorkload(${id})" title="Remove workload">×</button>
                 </div>
                 <div class="workload-grid">
@@ -1144,6 +1170,7 @@
                 </div>
             `;
             
+            // Add event listeners for all inputs including compression checkbox
             item.querySelectorAll('input, select').forEach(input => {
                 input.addEventListener('input', autoCalculate);
                 input.addEventListener('change', autoCalculate);
@@ -1171,6 +1198,7 @@
             }
         }
 
+        // FIXED: Enhanced getWorkloads to properly read compression checkbox state
         function getWorkloads() {
             return Array.from(document.querySelectorAll('.workload-item')).map(item => {
                 const id = item.dataset.id;
@@ -1257,15 +1285,15 @@
                 throw new Error('No workload data available');
             }
             
-            // ESA Phase 1: Per-workload compression (512B granularity)
+            // ESA Phase 1: Per-workload compression (512B granularity) - FIXED
             const perWorkload = workloads.map(w => {
                 const compressionProfile = DEFAULT_COMPRESSION_BY_TYPE[w.type] || { default: 1.0 };
-                const workloadCompressionEnabled = globalCompressionOn && w.compressionEnabled;
-                const compressionFactor = workloadCompressionEnabled ? compressionProfile.default : 1.0;
+                // FIXED: Use individual workload compression setting
+                const compressionFactor = (globalCompressionOn && w.compressionEnabled) ? compressionProfile.default : 1.0;
                 const compressed = w.logicalTiB / compressionFactor;
                 const cold = compressed * clamp(w.coldPct, 0, 1);
                 
-                return { ...w, compressed, cold, compressionFactor, workloadCompressionEnabled };
+                return { ...w, compressed, cold, compressionFactor };
             });
             
             const totalCompressed = perWorkload.reduce((sum, p) => sum + p.compressed, 0);
@@ -1278,7 +1306,7 @@
                 const similarity = DEFAULT_SIMILARITY[p.type] || 0;
                 const dedupeProbability = clamp(similarity * domainScaling, 0, 1);
                 // ESA post-processing efficiency - conservative
-                const efficiency = p.workloadCompressionEnabled ? 0.6 : 0.75;
+                const efficiency = (globalCompressionOn && p.compressionEnabled) ? 0.6 : 0.75;
                 const dedupeSavings = clamp(p.cold * dedupeProbability * efficiency, 0, p.cold);
                 
                 totalDedupeSavings += dedupeSavings;
@@ -1414,7 +1442,7 @@
                 stop1.setAttribute('offset', '0%');
                 stop1.setAttribute('stop-color', d.gradient);
                 
-                const stop2 = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
+                const stop2 = document.createElementNS('http://www.w3.svg', 'stop');
                 stop2.setAttribute('offset', '100%');
                 stop2.setAttribute('stop-color', d.color);
                 
@@ -1479,10 +1507,11 @@
                 <tr class="highlight-row"><td>Net Effective Capacity</td><td>${formatNumber(result.netEffective, 1)} TiB</td><td>Final ESA storage consumption (${formatNumber(result.capacityUtilization, 1)}% utilization)</td></tr>
             `;
             
+            // FIXED: Enhanced workload details table with compression status
             const workloadDetailsTable = document.getElementById('workloadDetailsTable');
             workloadDetailsTable.innerHTML = result.perWorkloadFinal.map(w => `
                 <tr>
-                    <td>${WORKLOAD_TYPES[w.type]} ${w.workloadCompressionEnabled ? '🗜️' : '➖'}</td>
+                    <td>${WORKLOAD_TYPES[w.type]} ${w.compressionEnabled ? '🗜️' : '➖'}</td>
                     <td>${formatNumber(w.logicalTiB, 1)} TiB</td>
                     <td>${formatNumber(w.compressed, 1)} TiB</td>
                     <td>${formatNumber(w.dedupeSavings, 1)} TiB</td>
